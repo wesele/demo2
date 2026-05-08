@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Cross-Compile & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Tidy modules
+        run: go mod tidy
+
+      - name: Run tests
+        run: go test -v -race ./...
+
+      - name: Build release binaries
+        run: |
+          mkdir -p bin
+          PLATFORMS="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64"
+          VERSION="${GITHUB_REF_NAME}"
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+
+          for PLATFORM in $PLATFORMS; do
+            OS="${PLATFORM%/*}"
+            ARCH="${PLATFORM#*/}"
+            EXT=""
+            [ "$OS" = "windows" ] && EXT=".exe"
+            OUTPUT="bin/ai-cmd-${OS}-${ARCH}${EXT}"
+            echo "Building $OUTPUT ..."
+            CGO_ENABLED=0 GOOS=$OS GOARCH=$ARCH \
+              go build -ldflags "$LDFLAGS" \
+              -o "$OUTPUT" \
+              ./cmd/ai-cmd
+          done
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log --oneline "${PREV_TAG}..HEAD")
+          else
+            NOTES=$(git log --oneline)
+          fi
+          echo "RELEASE_NOTES<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bin/*
+          body: |
+            ## What's Changed
+
+            ${{ steps.notes.outputs.RELEASE_NOTES }}
+
+            ## Downloads
+
+            | Platform | Binary |
+            |----------|--------|
+            | Linux (amd64) | `ai-cmd-linux-amd64` |
+            | Linux (arm64) | `ai-cmd-linux-arm64` |
+            | macOS (amd64) | `ai-cmd-darwin-amd64` |
+            | macOS (arm64) | `ai-cmd-darwin-arm64` |
+            | Windows (amd64) | `ai-cmd-windows-amd64.exe` |
