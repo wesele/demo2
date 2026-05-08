@@ -75,7 +75,7 @@ func TestSafePatterns(t *testing.T) {
 		"find /tmp -name '*.log'",
 		"df -h",
 		"top",
-		"curl https://example.com",  // curl without -o is safe
+		"curl https://example.com", // curl without -o is safe
 	}
 	for _, cmd := range safeCmds {
 		got := Classify(cmd)
